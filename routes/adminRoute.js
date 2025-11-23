@@ -3,7 +3,7 @@ const { adminTokenVerify } = require("../common/tokenVerify");
 const {
   adminLogin,
   adminProfile,
-  // adminRegister,
+  adminRegister,
   MpinView,
   otpList,
   AddReferToUser,
@@ -13,9 +13,9 @@ const { txnList } = require("../controllers/adminTxn");
 const { manageMoney } = require("../controllers/wallet");
 
 // routes
-router.post("/forgot-password");
+// router.post("/forgot-password");
 router.post("/login", adminLogin);
-// router.post("/register", adminRegister);
+router.post("/register", adminRegister);
 router.get("/txn-list", adminTokenVerify, txnList);
 router.get("/profile", adminTokenVerify, adminProfile);
 router.post("/send", adminTokenVerify, manageMoney);

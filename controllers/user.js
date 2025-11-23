@@ -1,17 +1,7 @@
 const CRYPTO_SECRET = process.env.CRYPTO_SECRET;
-// const Txn = require("../models/txnSchema");
 const Otp = require("../models/otpSchema");
 const User = require("../models/userSchema");
-// const Wallet = require("../models/walletSchema");
-// const Matrix = require("../models/matrixSchema");
 const Service = require("../models/serviceSchema");
-// const getIpAddress = require("../common/getIpAddress");
-// const sendEmail = require("../common/sendEmail");
-// const GiftCard = require("../models/giftCardSchema");
-// const Notification = require("../models/notificationSchema");
-// const sendNotification = require("../common/sendNotification");
-// const uniqueIdGenerator = require("../common/uniqueIdGenerator");
-// const { encryptFunc } = require("../common/encryptDecrypt");
 
 const CryptoJS = require("crypto-js");
 const sendSMS = require("../common/sendSMS");
@@ -22,17 +12,28 @@ const { profilePicResize } = require("../common/imageResize");
 const deletePreviousImage = require("../common/deletePreviousImage");
 
 // user profile
+// user profile
 const userProfile = asyncHandler(async (req, res) => {
+  console.log("fetch user profile");
   const { _id } = req.data;
+
   const userFound = await User.findById(_id).populate("wallet");
+
   const { password, ...others } = userFound.toObject();
 
-  // Success Respond
+  // Format wallet amount: 54.2224 -> 54.2
+if (others.wallet && others.wallet.balance !== undefined) {
+  others.wallet.balance = Number(others.wallet.balance.toFixed(2));
+}
+
+  console.log(req.body, "user profile fetch");
+  console.log(others, "user profile data");
   successHandler(req, res, {
-    Data: (others),
+    Data: others,
     Remarks: "User Profile Fetch Successfull.",
   });
 });
+
 
 // user list
 // const userList = asyncHandler(async (req, res) => {
@@ -141,6 +142,7 @@ const userProfile = asyncHandler(async (req, res) => {
 //   });
 // });
 
+
 const userList = asyncHandler(async (req, res) => {
   const page = parseInt(req.body.pageNumber) || 1;
   const pageSize = parseInt(req.body.pageSize) || 20;
@@ -150,8 +152,6 @@ const userList = asyncHandler(async (req, res) => {
 
   const query = {};
   let sortOption = { createdAt: -1 }; // Default sorting
-  let allUsers;
-  let lastPage;
 
   // Build query based on search and select
   if (searchVal && selectVal) {
@@ -165,7 +165,7 @@ const userList = asyncHandler(async (req, res) => {
     }
   }
 
-  // Additional filtering
+  // Additional filter
   if (filter) {
     switch (filter) {
       case "prime":
@@ -181,7 +181,6 @@ const userList = asyncHandler(async (req, res) => {
         sortOption = { createdAt: 1 };
         break;
       case "htl":
-        // Sort by wallet balance (descending)
         sortOption = { "wallet.balance": -1 };
         break;
       case "newest":
@@ -193,15 +192,30 @@ const userList = asyncHandler(async (req, res) => {
   }
 
   // Execute query with pagination
-  allUsers = await User.find(query)
+  let allUsers = await User.find(query)
     .sort(sortOption)
     .skip((page - 1) * pageSize)
     .limit(pageSize)
-    .populate("wallet", "balance"); // Fetch only necessary fields
+    .populate("wallet", "balance");
 
-  // Count total documents for pagination
+  // ⭐ DECRYPT MPIN FOR EACH USER
+  allUsers = allUsers.map((user) => {
+    try {
+      if (user.mPin) {
+        const bytes = CryptoJS.AES.decrypt(user.mPin, CRYPTO_SECRET);
+        user = user.toObject();
+        user.mPin = bytes.toString(CryptoJS.enc.Utf8); // decrypted MPIN
+      }
+    } catch (e) {
+      user = user.toObject();
+      user.mPin = null; // if decryption fails
+    }
+    return user;
+  });
+
+  // Pagination count
   const totalCount = await User.countDocuments(query);
-  lastPage = Math.ceil(totalCount / pageSize);
+  const lastPage = Math.ceil(totalCount / pageSize);
 
   // Success Response
   successHandler(req, res, {
@@ -212,6 +226,7 @@ const userList = asyncHandler(async (req, res) => {
     Remarks: "User Profile Fetch Successful.",
   });
 });
+
 
 // update profile
 const updateProfile = asyncHandler(async (req, res) => {
@@ -249,12 +264,12 @@ const updateProfile = asyncHandler(async (req, res) => {
 
 const referList = asyncHandler(async (req, res) => {
   const { referalId } = req.data;
-  const data = await User.find({ referBy: referalId });
+  const data = await User.find({ referBy: referalId }).select("firstName lastName phone email");
 
   // success respond
   successHandler(req, res, {
     Remarks: "Refer list",
-    Data: (data.reverse()),
+    Data:data,
   });
 });
 
@@ -373,18 +388,22 @@ const createMpin = asyncHandler(async (req, res) => {
 // verify mpin
 const verifyMpin = asyncHandler(async (req, res) => {
   const { mPin } = req.body;
+  console.log("mpin", req.body);
+  console.log("header", req.headers);
   const userFound = req.data;
   // decrypt mpin
+  console.log("user found", userFound.firstName);
   const decryptMpin = CryptoJS.AES.decrypt(
     userFound.mPin,
     CRYPTO_SECRET
   ).toString(CryptoJS.enc.Utf8);
 
   if (mPin.toString() !== decryptMpin) {
+    console.log("invalid m pin")
     res.status(400);
     throw new Error("Please enter valid mPin");
   }
-
+  console.log("m pin success");
   // success respond
   successHandler(req, res, { Remarks: "Verify mPin" });
 });
@@ -402,6 +421,7 @@ const forgotMpin = asyncHandler(async (req, res) => {
   //  success handle
   successHandler(req, res, { Remarks: "Otp sent on your email or phone." });
 });
+
 
 // verify otp
 const verifyOTP = asyncHandler(async (req, res) => {

@@ -4,7 +4,7 @@ const successHandler = require("../common/successHandler");
 // const { encryptFunc } = require("../common/encryptDecrypt");
 const Users = require("../models/userSchema");
 const { error } = require("winston");
-const { all } = require("axios");
+// const { all } = require("axios");
 const rechargeSchema = require("../models/service/rechargeSchema");
 const dthSchema = require("../models/service/dthSchema");
 const bbps = require("../models/service/bbps");
@@ -21,50 +21,107 @@ const userSchema = require("../models/userSchema");
 
 // txn list by User
 const getTransaction = asyncHandler(async (req, res) => {
-  const bills = [
-    "Electricity",
-    "FasTag",
-    "Landline",
-    "LPG",
-    "Education Fee",
-    "Loan Repay",
-    "Credit Card",
-    "Housing",
-    "Hospital Bills",
-    "Subscription",
-    "Club Assoc",
-    "Tax",
-    "Municipal Ser",
-    "Insurance",
-  ];
-  const { _id } = req.data;
-  let allTxn;
-  if (req.query) {
-    if (!req.query.txnName) {
-      allTxn = await Txn.find({
-        userId: _id,
-        txnResource: req.query.txnResource,
-      }).populate("recipientId");
-    } else {
-      allTxn = await Txn.find({
-        userId: _id,
-        txnResource: req.query.txnResource,
-        txnName:
-          req.query.txnName === "Bills" ? { $in: bills } : req.query.txnName,
-      }).populate("recipientId");
-    }
-  } else {
+  try {
+    const bills = [
+      "Electricity",
+      "FasTag",
+      "Landline",
+      "LPG",
+      "Education Fee",
+      "Loan Repay",
+      "Credit Card",
+      "Housing",
+      "Hospital Bills",
+      "Subscription",
+      "Club Assoc",
+      "Tax",
+      "Municipal Ser",
+      "Insurance",
+    ];
+
+    const { _id } = req.data;
+
+    // Extract all possible filters
+    const {
+      txnResource,
+      txnType,
+      txnName,
+      status,
+      search,
+      fromDate,
+      toDate,
+      page = 1,
+      limit = 20,
+    } = req.query;
+
+    // Base filter
+    const filter = { userId: _id };
+
+    // Apply optional filters (only if provided)
+    if (txnResource) filter.txnResource = txnResource;
+
+    if (txnType) filter.txnType = txnType; // debit / credit
+
     allTxn = await Txn.find({ userId: _id }).populate("recipientId");
+    const allTxnResource = allTxn.map((item) => item.txnName);
+    console.log("req.query", allTxnResource);
+
+    if (status) filter.status = status; // success / failed / pending
+
+    if (txnName) {
+      filter.txnName =
+        txnName === "Bills" ? { $in: bills } : txnName;
+    }
+
+    // Search filter (on amount, reference, recipient name, etc.)
+    if (search) {
+      filter.$or = [
+        { amount: { $regex: search, $options: "i" } },
+        { referenceId: { $regex: search, $options: "i" } },
+        { "recipientName": { $regex: search, $options: "i" } },
+      ];
+    }
+
+    // Date range filter
+    if (fromDate || toDate) {
+      filter.createdAt = {};
+      if (fromDate) filter.createdAt.$gte = new Date(fromDate);
+      if (toDate) filter.createdAt.$lte = new Date(toDate);
+    }
+
+    // Pagination
+    const skip = (page - 1) * limit;
+
+    // Fetch data
+    const transactions = await Txn.find(filter)
+      .populate("recipientId")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(Number(limit));
+
+    const total = await Txn.countDocuments(filter);
+
+    successHandler(req, res, {
+      Remarks: "Filtered transaction list",
+      Data: {
+        total,
+        page: Number(page),
+        limit: Number(limit),
+        transactions,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({
+      Error: true,
+      Status: false,
+      ResponseStatus: 0,
+      StatusCode: "Ex500",
+      Remarks: err.message || "Something went wrong",
+    });
   }
-  // const allTxn = req.query
-  //   ? await Txn.find({ userId: _id, ...req.query }).populate("recipientId")
-  //   : await Txn.find({ userId: _id }).populate("recipientId");
-  // // success handler
-  successHandler(req, res, {
-    Remarks: "Fetch all transaction",
-    Data: (allTxn.reverse()),
-  });
 });
+
+
 
 // txn list by Admin
 // const getAllTransaction = asyncHandler(async (req, res) => {
@@ -170,7 +227,6 @@ const getTransaction = asyncHandler(async (req, res) => {
 //     },
 //   });
 // });
-
 const getAllTransaction = asyncHandler(async (req, res) => {
   const page = parseInt(req.body.pageNumber) || 1;
   const pageSize = parseInt(req.body.pageSize) || 20;
@@ -241,17 +297,47 @@ const txnByUserId = asyncHandler(async (req, res) => {
     recipientId: _id,
     userId: receiverId,
     txnResource: "Wallet",
-  });
+  }).select("-__v -gatewayName -ipAddress");
+
   const receiver = await Txn.find({
     recipientId: receiverId,
     userId: _id,
     txnResource: "Wallet",
   });
 
-  // success handler
+  // Step-1: Merge + Sort
+  let txns = [...sender, ...receiver].sort(
+    (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+  );
+
+  // Step-2: Add balances
+  let currentBalance = 0;
+
+  txns = txns.map((txn) => {
+    const amount = Number(txn.txnAmount) || 0;
+    const openingBalance = currentBalance;
+
+    if (txn.txnType === "credit") {
+      currentBalance += amount;
+    } else if (txn.txnType === "debit") {
+      currentBalance -= amount;
+    }
+
+    const closingBalance = currentBalance;
+
+    return {
+      ...txn._doc,
+      openingBalance: openingBalance.toFixed(2),
+      closingBalance: closingBalance.toFixed(2),
+    };
+  });
+
+  // Step-3: Reverse if you want recent first
+  txns.reverse();
+
   successHandler(req, res, {
     Remarks: "Fetch txn list by user.",
-    Data: ([...sender, ...receiver].reverse()),
+    Data: txns,
   });
 });
 
@@ -403,7 +489,7 @@ const GET_LEDGER_REPORT_USER = asyncHandler(async (req, res) => {
   const { phone, startDate, endDate } = req.query;
   if (!phone) {
     res.status(400);
-    throw new error("Parameter is Missing");
+    throw new Error("Parameter is Missing");
   }
   try {
     const user = await userSchema
@@ -451,10 +537,12 @@ const GET_LEDGER_REPORT_USER = asyncHandler(async (req, res) => {
     // Step 3: Combine All Transactions
     let allTransactions = [];
 
+    console.log(walletTransactions, "walletTransactions");
     // Handle Wallet Transactions (Avoid Duplicates)
     walletTransactions.forEach((txn) => {
       let description = txn.txnDesc;
       // Avoid duplicate entry based on txnId
+      // console.log(txn.txnId, "txn.txnId");
       if (!allTransactions.some((t) => t.orderId === txn.txnId)) {
         const findRecharge = rechargeTransactions.find(
           (a) => a.transactionId == txn.txnId
@@ -465,7 +553,7 @@ const GET_LEDGER_REPORT_USER = asyncHandler(async (req, res) => {
         const findBBPS = bbpsTransactions.find(
           (a) => a.transactionId == txn.txnId
         );
-
+        console.log("findRecharge 3",findRecharge);
         if (findRecharge) {
           const findOpr = All_Recharge_Operator_List.find(
             (b) =>
@@ -474,8 +562,9 @@ const GET_LEDGER_REPORT_USER = asyncHandler(async (req, res) => {
               b.Cyrus_Operator_code == findRecharge.operator ||
               b.Billhub_Operator_code == findRecharge.operator
           );
-
+        
           description = `Mobile Recharge | ${findRecharge.number} | ${findOpr.Operator_name} | TXN_ID ${txn.txnId}`;
+          // console.log(dec, "findOpr");
         } else if (findDTH) {
           const findOpr = All_DTH_Recharge_Operator_List.find(
             (b) =>
@@ -507,15 +596,17 @@ const GET_LEDGER_REPORT_USER = asyncHandler(async (req, res) => {
           linkedOrderId: txn.txnId.endsWith("cashback")
             ? txn.txnId.replace("cashback", "")
             : txn.txnId.endsWith("refer")
-            ? txn.txnId.replace("refer", "")
-            : txn.txnId.endsWith("refund")
-            ? txn.txnId.replace("refund", "")
-            : null,
+              ? txn.txnId.replace("refer", "")
+              : txn.txnId.endsWith("refund")
+                ? txn.txnId.replace("refund", "")
+                : null,
           status: txn.txnStatus,
           date: txn.createdAt,
         });
       }
     });
+
+   
 
     // Handle Recharge Transactions (Add Service Remarks and Avoid Duplicates)
     rechargeTransactions.forEach((txn) => {
@@ -705,10 +796,10 @@ const Generate_Invoice_By_OrderId = asyncHandler(async (req, res) => {
       TXN_TYPE == "ONLINE"
         ? "E-Topup"
         : TXN_TYPE == "RECHARGE"
-        ? `Recharge | ${OPERATOR.Operator_name} | Number - ${rechargeRecord.number}`
-        : TXN_TYPE == "DTH"
-        ? `DTH Recharge | ${DTH_OPERATOR.Operator_name} | Number - ${dthRecord.number}`
-        : `Bill Payment | ${FIND_SERVICE.name} | Number - ${bbpsRecord.number}`;
+          ? `Recharge | ${OPERATOR.Operator_name} | Number - ${rechargeRecord.number}`
+          : TXN_TYPE == "DTH"
+            ? `DTH Recharge | ${DTH_OPERATOR.Operator_name} | Number - ${dthRecord.number}`
+            : `Bill Payment | ${FIND_SERVICE.name} | Number - ${bbpsRecord.number}`;
 
     const Show_IGST =
       TXN_TYPE !== "ONLINE"
@@ -785,9 +876,8 @@ const Generate_Invoice_By_OrderId = asyncHandler(async (req, res) => {
           </div>
           <div>
             <h3 class="text-base font-bold">Billed To:</h3>
-            <p class="text-gray-700 font-semibold">${
-              txnRecord.userId.firstName
-            } ${txnRecord.userId.lastName}</p>
+            <p class="text-gray-700 font-semibold">${txnRecord.userId.firstName
+      } ${txnRecord.userId.lastName}</p>
             <p class="text-gray-600 font-semibold">${txnRecord.userId.email}</p>
             <p class="text-gray-600 font-semibold">${txnRecord.userId.phone}</p>
           </div>
@@ -834,19 +924,17 @@ const Generate_Invoice_By_OrderId = asyncHandler(async (req, res) => {
                 </td>
                ${Show_Hsn_Code_Value}
                 <td class="border text-center border-gray-300 px-4 py-2">
-                  ₹${
-                    TXN_TYPE == "ONLINE"
-                      ? txnRecord.txnAmount
-                      : GST_AMOUNT.amountExcludingGST
-                  }
+                  ₹${TXN_TYPE == "ONLINE"
+        ? txnRecord.txnAmount
+        : GST_AMOUNT.amountExcludingGST
+      }
                 </td>
                 <td class="border text-center border-gray-300 px-4 py-2">1</td>
                 <td class="border text-center border-gray-300 px-4 py-2">
-                  ₹${
-                    TXN_TYPE == "ONLINE"
-                      ? txnRecord.txnAmount
-                      : GST_AMOUNT.amountExcludingGST
-                  }
+                  ₹${TXN_TYPE == "ONLINE"
+        ? txnRecord.txnAmount
+        : GST_AMOUNT.amountExcludingGST
+      }
                 </td>
               </tr>
             </tbody>
@@ -858,11 +946,10 @@ const Generate_Invoice_By_OrderId = asyncHandler(async (req, res) => {
           <div class="mt-8 space-y-3 w-80">
             <div class="flex justify-between items-center">
               <p class="font-medium">Sub Total</p>
-              <p class="">₹${
-                TXN_TYPE == "ONLINE"
-                  ? txnRecord.txnAmount
-                  : GST_AMOUNT.amountExcludingGST
-              }</p>
+              <p class="">₹${TXN_TYPE == "ONLINE"
+        ? txnRecord.txnAmount
+        : GST_AMOUNT.amountExcludingGST
+      }</p>
             </div>
            ${Show_IGST}
             <div class="flex border-t pt-3 justify-between items-center">

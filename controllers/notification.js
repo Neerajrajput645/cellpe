@@ -72,7 +72,8 @@ const pushNotification = asyncHandler(async (req, res) => {
   try {
     const { title, content } = req.body;
     const data = { title, body: content };
-
+    console.log("Sending notification with title:", title, "and content:", content);
+    console.log("header token:", req.headers.token);
     const users = await userSchema.find({
       deviceToken: { $ne: null },
       doNotNotify: { $ne: true },
@@ -89,10 +90,13 @@ const pushNotification = asyncHandler(async (req, res) => {
 
     if (playerIds.length === 0) {
       console.log("No users to notify.");
-      return;
+      return successHandler(req, res, {
+        Remarks: "No users found to notify",
+        count: 0
+      });
       // return res.send("no user found");
     }
-    
+
 
     const batches = chunkArray(playerIds, 2000);
     const notification = new OneSignal.Notification();
@@ -107,7 +111,9 @@ const pushNotification = asyncHandler(async (req, res) => {
     await Notification.create({ ...data, byAdmin: true });
 
     // success handler
-    successHandler(req, res, { Remarks: "Notifications Sent Successfully" });
+    successHandler(req, res, {
+      Remarks: "Notifications Sent Successfully",
+    });
   } catch (error) {
     console.error("Unexpected error sending notification:");
     console.error("HTTP-Code:", error.status);
@@ -116,4 +122,68 @@ const pushNotification = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { notificationListByUser, notificationList, pushNotification };
+const pushNotificationImage = asyncHandler(async (req, res) => {
+  try {
+    const { title, content } = req.body; // <-- ADD image in request body
+    const data = { title, body: content };
+    const image = req?.file?.path || "uploads/notification/defaultNotify.jpg"
+    if (image) data.image = image;
+    console.log("Sending notification with title:", title, "and content:", content);
+    console.log("header token:", req.headers.token);
+    console.log("body:", req.body);
+    const users = await userSchema.find({
+      deviceToken: { $ne: null },
+      doNotNotify: { $ne: true },
+    });
+
+    const playerIds = users
+      .map((user) => user.deviceToken)
+      .filter(
+        (id) =>
+          typeof id === "string" &&
+          id.trim() !== "" &&
+          /^[0-9a-fA-F-]{36}$/.test(id.trim())
+      );
+
+    if (playerIds.length === 0) {
+      console.log("No users to notify.");
+      return successHandler(req, res, {
+        Remarks: "No users found to notify",
+        count: 0
+      });
+    }
+
+    const batches = chunkArray(playerIds, 2000);
+
+    for (const batch of batches) {
+      const notification = new OneSignal.Notification();
+      notification.app_id = ONESIGNAL_APP_ID;
+      notification.headings = { en: title };
+      notification.contents = { en: content };
+      notification.include_player_ids = batch;
+
+      // IMPORTANT: IMAGE SUPPORT
+      if (image) {
+        notification.big_picture = image; // Android big image
+        notification.large_icon = image; // Thumbnail
+        notification.ios_attachments = { id1: image }; // iOS big image
+      }
+
+      await client.createNotification(notification);
+    }
+
+
+    await Notification.create({ ...data, byAdmin: true });
+    successHandler(req, res, {
+      Remarks: "Notifications Sent Successfully",
+    });
+  } catch (error) {
+    console.error("Unexpected error sending notification:");
+    console.error("HTTP-Code:", error.status);
+    console.error("Message:", error.message);
+    console.error("Body:", error.body);
+  }
+});
+
+
+module.exports = { notificationListByUser, notificationList, pushNotification, pushNotificationImage };

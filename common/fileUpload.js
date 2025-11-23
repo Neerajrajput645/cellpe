@@ -351,6 +351,78 @@ const serviceImages = multer({
   fileFilter,
 });
 
+// ----------------------------------------- Commissions ------------------------------------- //
+
+const storage15 = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const destination = `uploads/commissions`;
+    // Create the dynamic folder if it doesn't exist
+    if (!fs.existsSync(destination)) {
+      fs.mkdirSync(destination, { recursive: true });
+    }
+    cb(null, destination);
+  },
+  filename: function (req, file, cb) {
+    cb(null, Date.now() + "-" + file.originalname.replaceAll(" ", "-"));
+  },
+});
+const commissionImages = multer({
+  storage: storage15,
+  limits: {
+    fileSize: 2 * 1024 * 1024, // 2 MB limit
+  },
+  fileFilter,
+});
+
+
+// ----------------------------------------- Home Banners ------------------------------------- //
+
+const storage16 = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const destination = `uploads/homeBanners`;
+    // Create the dynamic folder if it doesn't exist
+    if (!fs.existsSync(destination)) {
+      fs.mkdirSync(destination, { recursive: true });
+    }
+    cb(null, destination);
+  },
+  filename: function (req, file, cb) {
+    cb(null, Date.now() + "-" + file.originalname.replaceAll(" ", "-"));
+  },
+});
+const homeBannerImages = multer({
+  storage: storage16,
+  limits: {
+    fileSize: 2 * 1024 * 1024, // 2 MB limit
+  },
+  fileFilter,
+});
+
+
+// ----------------------------------------- Notification Image ------------------------------------- //
+
+const storage17 = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const destination = `uploads/notification`;
+    // Create the dynamic folder if it doesn't exist
+    if (!fs.existsSync(destination)) {
+      fs.mkdirSync(destination, { recursive: true });
+    }
+    cb(null, destination);
+  },
+  filename: function (req, file, cb) {
+    cb(null, Date.now() + "-" + file.originalname.replaceAll(" ", "-"));
+  },
+});
+const notificationImage = multer({
+  storage: storage17,
+  limits: {
+    fileSize: 2 * 1024 * 1024, // 2 MB limit
+  },
+  fileFilter,
+});
+
+
 module.exports = {
   userProfileUpload,
   serviceUpload,
@@ -364,7 +436,10 @@ module.exports = {
   productImageUpload,
   ratingImages,
   appLogoUpload,
+  homeBannerImages,
   affiliateBannerUploads,
+  commissionImages,
   serviceCategoryImages,
-  serviceImages
+  serviceImages,
+  notificationImage
 };

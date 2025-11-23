@@ -3,33 +3,34 @@ const User = require("../models/userSchema");
 const { errorLogger } = require("./logger");
 
 const errorHandler = async (err, req, res, next) => {
-  const isAuth = req.headers.token;
+  const token = req?.headers?.token;
+
+  // Safely get user data if token exists and is valid
   const getData = () => {
-    if (isAuth) {
-      return new Promise((resolve, reject) => {
-        jwt.verify(isAuth, process.env.JWT_SECRET, async (err, data) => {
-          if (err) {
-            reject(err);
-          } else {
-            const { _id } = data;
-            // success response
-            const userFound = await User.findById(_id);
-            resolve(userFound);
-          }
-        });
+    return new Promise((resolve) => {
+      if (!token) return resolve(null); // 🧠 Skip if no token
+
+      jwt.verify(token, process.env.JWT_SECRET, async (verifyErr, decoded) => {
+        if (verifyErr) return resolve(null); // 🧠 Skip on invalid/malformed token
+        const userFound = await User.findById(decoded._id);
+        resolve(userFound);
       });
-    }
+    });
   };
+
   const userData = await getData();
-  const remarks = isAuth
-    ? `userid: ${userData?._id}, name: ${userData?.firstName} ${
-        userData?.lastName
-      }, phone: ${userData?.phone}, ${err.message.replace("Error: ", "")}`
+
+  const remarks = userData
+    ? `userid: ${userData._id}, name: ${userData.firstName} ${userData.lastName}, phone: ${userData.phone}, ${err.message.replace("Error: ", "")}`
     : err.message.replace("Error: ", "");
 
-  const StatusCode = res.statusCode ? res.statusCode : 500;
-  errorLogger.log("error", remarks); // error logs
-  res.json({
+  const StatusCode = res.statusCode && res.statusCode !== 200 ? res.statusCode : 500;
+
+  // Log error details
+  errorLogger.log("error", remarks);
+
+  // Send clean structured error response
+  return res.status(StatusCode).json({
     Error: true,
     Status: false,
     ResponseStatus: 0,

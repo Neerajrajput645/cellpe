@@ -6,6 +6,7 @@ const { encryptFunc } = require("../common/encryptDecrypt");
 
 // service list
 const serviceList = asyncHandler(async (req, res) => {
+  console.log("ads");
   const allServices = req.query
     ? await Service.find(req.query).sort([["createdAt", 1]])
     : await Service.find().sort([["createdAt", 1]]);
@@ -77,13 +78,13 @@ const deleteService = asyncHandler(async (req, res) => {
   }
 });
 
-const shownServices = asyncHandler(async (req, res) => {
-  const services = await Service.find({ isShow: true }).sort([["createdAt", 1]]);
-  successHandler(req, res, {
-    Remarks: "Fetch shown services",
-    Data: services,
-  });
-});
+// const shownServices = asyncHandler(async (req, res) => {
+//   const services = await Service.find({ isShow: true }).sort([["createdAt", 1]]);
+//   successHandler(req, res, {
+//     Remarks: "Fetch shown services",
+//     Data: services,
+//   });
+// });
 
 
-module.exports = { serviceList, addService, updateService, deleteService, shownServices };
+module.exports = { serviceList, addService, updateService, deleteService };

@@ -7,6 +7,7 @@ const Wallet = require("../models/walletSchema");
 const Matrix = require("../models/matrixSchema");
 const Service = require("../models/serviceSchema");
 const Merchant = require("../models/merchantSchema");
+const Commission = require("../models/newModels/commission");
 const getIpAddress = require("../common/getIpAddress");
 const AdminTxn = require("../models/adminTxnSchema");
 const Withdraw = require("../models/withdrawSchema");
@@ -24,12 +25,54 @@ const userSchema = require("../models/userSchema");
 const CRYPTO_SECRET = process.env.CRYPTO_SECRET;
 const sendEmail = require("../common/sendEmail");
 const appSetting = require("../models/appSetting");
-// wallet info
-const getWalletByUser = asyncHandler(async (req, res) => {
-  const { _id } = req.data;
-  const data = await Wallet.findOne({ userId: _id });
-  successHandler(req, res, { Remarks: "Fetch wallet by user", Data: data });
+
+
+const getWalletTxn = asyncHandler(async (req, res) => {
+  // Extract pagination + sorting
+  let { page = 1, limit = 10, sort = "-createdAt" } = req.query;
+  page = Number(page);
+  limit = Number(limit);
+
+  // Build dynamic filters
+  const condition = { ...req.query };
+  delete condition.page;
+  delete condition.limit;
+  delete condition.sort;
+
+  condition.txnResource = "Wallet";
+
+  // Get wallet info if userId exists
+  let wallet = null;
+  if (req.query?.userId) {
+    wallet = await Wallet.findOne({ userId: req.query.userId });
+  }
+
+  // MongoDB query with pagination
+  const skip = (page - 1) * limit;
+
+  const txn = await Txn.find(condition).populate("userId")
+    .sort(sort)
+    .skip(skip)
+    .limit(limit);
+
+  // Total count for pagination
+  const totalCount = await Txn.countDocuments(condition);
+
+  successHandler(req, res, {
+    Remarks: "Fetch wallet txn",
+    Data: {
+      wallet,
+      txn,
+      pagination: {
+        total: totalCount,
+        page,
+        limit,
+        totalPages: Math.ceil(totalCount / limit),
+      },
+    },
+  });
 });
+
 
 // check user exist or not before send money
 const userCheck = asyncHandler(async (req, res) => {
@@ -61,8 +104,11 @@ const sendMoney = asyncHandler(async (req, res) => {
     const userFound = req.data;
 
     const FindUser = await User.findOne({ _id: userFound._id });
-
-    if (FindUser.sendMoney) {
+    if (!FindUser) {
+      res.status(400);
+      throw new Error("User not found");
+    }
+    if (FindUser?.sendMoney) {
       const { amount, receiverWallet, mid, otp } = req.body;
 
       const findAmdinWalletFound = await AdminWallet.findOne();
@@ -123,8 +169,8 @@ const sendMoney = asyncHandler(async (req, res) => {
                     const findMerchant = mid
                       ? receiverUserFound
                       : await Merchant.findOne({
-                          userId: receiverUserFound?._id,
-                        });
+                        userId: receiverUserFound?._id,
+                      });
 
                     // Calculation of commissions
                     const totalCommission =
@@ -669,11 +715,11 @@ const addMoney = asyncHandler(async (req, res, response) => {
       txnId: response.txnid,
       txnAmount,
       ipAddress: getIpAddress(req),
-       gatewayName: response.gatewayName || "",
+      gatewayName: response.gatewayName || "",
     });
     await addToWallet.save();
-    
-        await Wallet.updateOne(
+
+    await Wallet.updateOne(
       { userId: userFound._id },
       { $inc: { balance: txnAmount } }
     );
@@ -1005,9 +1051,8 @@ const manageMoney = asyncHandler(async (req, res) => {
             // notification body
             const notification = {
               title: type === "credit" ? "Credited" : "Debited",
-              body: `${amount} ${
-                title === "balance" ? "Rupee" : title
-              } Received from Aadyapay.`,
+              body: `${amount} ${title === "balance" ? "Rupee" : title
+                } Received from Aadyapay.`,
             };
             const newNotification = new Notification({
               ...notification,
@@ -1042,11 +1087,195 @@ const manageMoney = asyncHandler(async (req, res) => {
   }
 });
 
+const userWallet = asyncHandler(async (req, res) => {
+  let payload = { ...req.query };
+
+  // (Optional) Convert userId to ObjectId if present
+  if (payload.userId) {
+    payload.userId = payload.userId.trim();
+  }
+
+  // Prevent unsafe mongo operators
+  Object.keys(payload).forEach(key => {
+    if (key.startsWith("$")) delete payload[key];
+  });
+
+  const wallet = await Wallet.find(payload).populate("userId");
+
+  return successHandler(req, res, {
+    Remarks: wallet && wallet.length > 0 ? "All user wallet data" : "No wallet data found",
+    Data: wallet ?? []
+  });
+});
+
+
+const cashback = asyncHandler(async (req, res) => {
+  const { serviceId, amount, opName } = req.body;
+
+  console.log("[STEP-1] Received serviceId:", serviceId);
+
+  if (!serviceId) {
+    res.status(400);
+    throw new Error("Service ID is required");
+  }
+
+  const service = await Service.findById(serviceId);
+  console.log("[STEP-2] Service found");
+
+  if (!service) {
+    res.status(404);
+    throw new Error("Service not found");
+  }
+
+  // Try to find the commission by operator name
+  let commission = await Commission.findOne({
+    serviceId,
+    status: true,
+    name: new RegExp(`^${opName}$`, "i"),
+  });
+
+  console.log("[STEP-3] Commission lookup by operator name:");
+
+  if (!commission) {
+    console.log("[STEP-3.1] Commission not found for operator name:", opName);
+
+    // If no commission is found by operator name, find the commission with the lowest cashback percentage
+    commission = await Commission.findOne({
+      serviceId,
+      status: true,
+    }).sort({ commission: 1 });  // Sort by commission percentage (ascending)
+
+    if (!commission) {
+      res.status(404);
+      throw new Error(`No valid commission found for serviceId: ${serviceId}`);
+    }
+
+    console.log("[STEP-3.2] Fallback commission found with the lowest cashback:", commission.commission);
+  }
+
+  console.log("[STEP-4] Commission found:", commission.commission);
+
+  // Calculate cashback amount
+  let cashbackAmount = (commission.commission / 100) * amount;
+  cashbackAmount = parseFloat(cashbackAmount.toFixed(2));
+  console.log("[STEP-6] Cashback calculated:", cashbackAmount);
+
+  // Send response
+  successHandler(req, res, {
+    Remarks: "Cashback amount fetched successfully",
+    data: {
+      Cashback: cashbackAmount,
+      type: "cashback",
+      category: commission.operatorType,
+      unit: "₹",
+    }
+  });
+});
+
+
+const manageUserWalletMoney = asyncHandler(async (req, res) => {
+  // Implementation here
+  const { _id } = req.data;
+  const service = await Service.findOne({ name: "ADD_MONEY" });
+  if (!service.status) {
+    res.status(400);
+    throw new Error("This service currently block");
+  }
+  console.log("admin id", _id)
+  const adminWallet = await Admin.findById(_id).populate('wallet');
+  // if(!adminWallet){
+  //   res.status(400);
+  //   throw new Error("Admin wallet not found");
+  // }
+  // if(!adminWallet.status || !adminWallet.userId.status){
+  //   res.status(400);
+  //   throw new Error("Admin wallet is inactive");
+  // }
+  // if(adminWallet.balance < req.body.amount || adminWallet.balance <=0){
+  //   res.status(400);
+  //   throw new Error("Insufficient admin wallet balance");
+  // }
+
+  console.log("Admin Wallet:", adminWallet);
+  const { userId, amount, type } = req.body;
+  const txnAmount = Number(amount);
+
+  if (!["credit", "debit"].includes(type)) {
+    res.status(400);
+    throw new Error("Invalid type, must be credit or debit");
+  }
+
+  if (!userId || !txnAmount || txnAmount <= 0) {
+    console.log("Invalid userId or amount:", { userId, amount });
+    res.status(400);
+    throw new Error("Please provide valid userId and amount");
+  }
+
+  if (Number(amount) > 2000) {
+    res.status(400);
+    throw new Error("Maximum ₹2000 allowed per transaction");
+  }
+  const userWallet = await Wallet.findOne({ userId: userId }).populate('userId');
+  if (!userWallet) {
+    res.status(400);
+    throw new Error("User wallet not found");
+  }
+  if (!userWallet.userId.status) {
+    console.log("User wallet or user is inactive", userWallet.userId.status);
+    res.status(400);
+    throw new Error("User wallet is inactive");
+  }
+  // Debit admin wallet
+
+if (type === "credit") {
+
+  const adminNewTxn = new AdminTxn({
+    adminId:adminWallet._id,
+    recipientId: userId,
+    txnAmount: txnAmount,
+    remarks: `Admin credited ₹${txnAmount} to user wallet`,
+    txnType: "debit",
+    txnId: Math.floor(Math.random() * Date.now()) + "adminCredit",
+    txnStatus: "TXN_SUCCESS",
+    txnResource: "Wallet",
+  });
+  await adminNewTxn.save();
+
+  successHandler(req, res, {
+    remark: "Amount credited to user wallet successfully",
+    amount: txnAmount,
+  });
+if(type === "debit"){
+  successHandler(req, res, {
+    remark: "Amount debited from user wallet successfully",
+    amount: txnAmount,
+  });
+}
+}
+});
+
+// wallet info
+const getWalletByUser = asyncHandler(async (req, res) => {
+  const { _id } = req.data;
+  const data = await Wallet.findOne({ userId: _id });
+  // i want to give only 2 frectional digit in balance
+  if (data) {
+    data.balance = parseFloat(data.balance).toFixed(2);
+  }
+  successHandler(req, res, { Remarks: "Fetch wallet by user", Data: data });
+});
+
+
 module.exports = {
   userCheck,
   addMoney,
+  // getWalletByAdmin,
   getWalletByUser,
   donateMoney,
   sendMoney,
   manageMoney,
+  cashback,
+  manageUserWalletMoney,
+  userWallet,
+  getWalletTxn
 };

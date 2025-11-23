@@ -6,11 +6,11 @@ const {
   addService,
   updateService,
   deleteService,
-  shownServices,
+  // shownServices,
 } = require("../controllers/service");
 
 router.get("/list", serviceList);
-router.get("/app-list", shownServices);
+// router.get("/app-list", shownServices);
 router.delete("/:serviceId", adminTokenVerify, deleteService);
 router.post(
   "/create",

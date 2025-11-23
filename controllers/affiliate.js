@@ -5,17 +5,59 @@ const deletePreviousImage = require("../common/deletePreviousImage");
 const { encryptFunc } = require("../common/encryptDecrypt");
 
 // get affiliate list
-const list = asyncHandler(async (req, res) => {
-  const result = await Affiliate.find();
+// const list = asyncHandler(async (req, res) => {
+//   const result = await Affiliate.find();
+//   successHandler(req, res, {
+//     Remarks: "Affiliate list success.",
+//     Data: (result),
+//   });
+// });
+
+
+const affiliateList = asyncHandler(async (req, res) => {
+
+  // Base filter
+  const filter = {
+    status: true,
+    isShow: true,
+    ...req.query   // merge user queries if any
+  };
+
+  const affiliate = await Affiliate.find(filter).sort([["createdAt", 1]]);
+
   successHandler(req, res, {
-    Remarks: "Affiliate list success.",
-    Data: (result),
+    Remarks: "Fetch all Affiliate",
+    Data: req.query.section
+      ? { [req.query.section]: affiliate }
+      : affiliate,
   });
 });
 
+
+const affiliateListAdmin = asyncHandler(async (req, res) => {
+  console.log("ads");
+
+  // Base filter
+  const filter = {
+    status: true,
+    isShow: true,
+    ...req.query   // merge user queries if any
+  };
+
+  const affiliate = await Affiliate.find(filter).sort([["createdAt", 1]]);
+
+  successHandler(req, res, {
+    Remarks: "Fetch all Affiliate",
+    Data: req.query.section
+      ? { [req.query.section]: affiliate }
+      : affiliate,
+  });
+});
+
+
 // create affiliate list
 const createAffiliate = asyncHandler(async (req, res) => {
-  const newAffiliate = new Affiliate({ ...req.body, image: req?.file?.path });
+  const newAffiliate = new Affiliate({ ...req.body, icon: req?.file?.path });
   const result = await newAffiliate.save();
   successHandler(req, res, { Remarks: "Create affiliate item.", Data: result });
 });
@@ -29,13 +71,13 @@ const updateAffiliate = asyncHandler(async (req, res) => {
     res.status(400);
     throw new Error("Please enter valid id.");
   }
-  deletePreviousImage(findAffiliate.image);
+  deletePreviousImage(findAffiliate.icon);
   const result = await Affiliate.updateOne(
     { _id: affiliateId },
     {
       $set: {
         ...req.body,
-        image: req.file ? req.file.path : findAffiliate.image,
+        icon: req.file ? req.file.path : findAffiliate.icon,
       },
     }
   );
@@ -52,7 +94,7 @@ const removeAffiliate = asyncHandler(async (req, res) => {
     throw new Error("Please enter valid id.");
   }
 
-  deletePreviousImage(findAffiliate.image);
+  deletePreviousImage(findAffiliate.icon);
   const result = await Affiliate.findByIdAndRemove(affiliateId);
   successHandler(req, res, {
     Remarks: "Removed affiliate stroe.",
@@ -60,4 +102,4 @@ const removeAffiliate = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { list, removeAffiliate, createAffiliate, updateAffiliate };
+module.exports = { affiliateList, affiliateListAdmin, removeAffiliate, createAffiliate, updateAffiliate };

@@ -2,13 +2,15 @@ const router = require("express").Router();
 const { affiliateImage } = require("../common/fileUpload");
 const { adminTokenVerify } = require("../common/tokenVerify");
 const {
-  list,
+  affiliateList, 
+  affiliateListAdmin,
   removeAffiliate,
   createAffiliate,
   updateAffiliate,
 } = require("../controllers/affiliate");
 
-router.get("/list", list);
+router.get("/list", affiliateList);
+router.get("/admin-list", adminTokenVerify, affiliateListAdmin)
 router.delete("/remove/:affiliateId", adminTokenVerify, removeAffiliate);
 router.post(
   "/create",

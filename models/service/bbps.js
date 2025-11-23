@@ -5,6 +5,8 @@ const bbpsSchema = new Schema(
     userId: { type: Schema.Types.ObjectId, ref: "User" },
     number: { type: String, reuiqred: true },
     operator: { type: String, reuiqred: true },
+    operatorName:{type:String},
+    username:{type:String},
     circle: { type: String, reuiqred: true },
     serviceId: { type: String, reuiqred: true },
     transactionId: { type: String, required: true, unique: true },

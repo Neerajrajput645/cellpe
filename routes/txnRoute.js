@@ -8,7 +8,7 @@ const {
     Generate_Invoice_By_OrderId,
 } = require("../controllers/txn");
 
-router.post("/list/all", adminTokenVerify, getAllTransaction);
+router.get("/list/all", adminTokenVerify, getAllTransaction);
 router.get("/list", tokenVerify, getTransaction);
 router.get("/list/:receiverId", tokenVerify, txnByUserId);
 router.get("/ledger", GET_LEDGER_REPORT_USER);

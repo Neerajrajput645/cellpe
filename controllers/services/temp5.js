@@ -1,38 +1,12 @@
+const CryptoJS = require("crypto-js");
 const axios = require("axios");
+require("dotenv/config");
 
-const rechargeRequest = async () => {
-  try {
-    const url = "https://api.new.techember.in/api/cyrus/recharge_request";
-    const params = {
-      number: "8770475416",
-      amount: "10",
-      mPin: "1234",
-      operator: "2",
-      circle: "93",
-      isPrepaid: true,
-    };
+const myFunc = async()=>{
+    const url = `http://planapi.in/api/Mobile/FastagInfoFetch?apimember_id=${process.env.PLAN_API_USER_ID}&api_password=${process.env.PLAN_API_PASSWORD}&VehicleNo=MP07ZC1955&operator_code=1`;
+    console.log(url);
+    const response = await axios.get(url);
+    console.log(response.data);
+}
 
-    const headers = {
-      token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJfaWQiOiI2OGNmOTQwNTczZTFkMTc3M2Q0MmQwNDkiLCJpYXQiOjE3NjE5Mjc4NTR9.etOCmmP1wHO6DppWvJfw5uflyY_zV_ufNNE7mUAXaDU", // Custom header
-    };
-
-    const response = await axios.get(url, { params, headers });
-
-    console.log("Recharge API Response:",response);
-    // console.log(JSON.stringify(response.data, null, 2)); // pretty print JSON
-
-  } catch (error) {
-    console.error("Recharge API Error:");
-    if (error.response) {
-      // Server responded with a status other than 2xx
-      console.error("Status:",error.response);
-      console.error("Data:", error.response);
-    } else {
-      // No response or other error
-      console.error("Message:", error.message);
-    }
-  }
-};
-
-// Run the function
-rechargeRequest();
+myFunc();

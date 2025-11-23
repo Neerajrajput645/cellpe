@@ -10,6 +10,8 @@ const cors = require("cors");
 const PORT = process.env.PORT || 5000;
 const connection = require("./database");
 const helmet = require("helmet");
+const {Recharge_CallBack_Handler} = require("./controllers/services/recharge");
+const {combinedHistory} = require("./controllers/services/report.js");
 // const puppeteer = require("puppeteer");
 // const AppSetting = require("./models/appSetting");
 // const successHandler = require("./common/successHandler");
@@ -26,7 +28,7 @@ const getIpAddress = require("./common/getIpAddress");
 // } = require("./controllers/services/recharge");
 // const { generatePDF } = require("./common/createHtmlToPdf");
 // const { checkAndRenewToken } = require("./common/paygicTokenGenerate");
-const { adminTokenVerify } = require("./common/tokenVerify");
+const { adminTokenVerify, tokenVerify } = require("./common/tokenVerify");
 const { Generate_Excel_Report } = require("./common/createHtmlToPdf");
 // const { default: axios } = require("axios");
 
@@ -56,24 +58,27 @@ app.use("/api/auth", require("./routes/authRoute"));
 app.use("/api/admin", require("./routes/adminRoute"));
 app.use("/api/ip-address", require("./routes/ipRoute"));  // ip address CRUD
 // app.use("/api/bus", require("./routes/busBooking"));
-
+app.get("/api/user/combined-history", tokenVerify, combinedHistory);
 app.use("/api/user", require("./routes/userRoute"));
 // app.use("/api/bank", require("./routes/bankRoute"));
 app.use("/api/wallet", require("./routes/walletRoute"));
-const {Recharge_CallBack_Handler} = require("./controllers/services/recharge");
+app.use("/api/commission", require("./routes/newRoutes/commission.js"));
+// webhook callback for recharge status
 app.all("/api/webhook/callback", Recharge_CallBack_Handler);
 // for webhook callbacks
 app.use("/api/setting", require("./routes/appSetting"));
 app.use("/api/banner", require("./routes/bannerRoute"));
+app.use("/api/home-banner", require("./routes/newRoutes/homeBanner.js"));
+app.use("/api/pop-image", require("./routes/newRoutes/homePopImage.js"));
 // app.use("/api/game", require("./routes/gameRoute"));
 app.use("/api/service", require("./routes/serviceRoute"));
 // app.use("/api/shipping", require("./routes/shippingRoute"));
 app.use("/api/affiliate-banner", require("./routes/affiliateBannerRoute"));
 
 app.use("/api/notification", require("./routes/notificationRoute"));
-
+// app.get("/api/commission/list", require("./controllers/services/recharge.js").commission);
 app.use("/api/payment", require("./routes/paymentRoutes"));
-
+//app.get("api/commission/list", require("./controllers/services/recharge.js").commission);
 // app.use("/api", require("./routes/other"));
 app.use("/api/cyrus", require("./routes/services"));
 // app.use("/api/webhook", require("./routes/webhook"));
@@ -81,12 +86,12 @@ app.use("/api/affiliate", require("./routes/affiliateRoute"));
 // app.use("/api/task", require("./routes/EarnTask/EarnTaskRoute"));
 // dashboard counts api
 app.get("/api/dashboard", dashboardApi);
-app.get("/api/download-report", adminTokenVerify, Generate_Excel_Report);
+// app.get("/api/download-report", adminTokenVerify, Generate_Excel_Report);
 // app.use("/api/privacy-policy", require("./routes/newRoutes/privacyPolicy"));
 // app.use("/api/term-condition", require("./routes/newRoutes/termCondition"));
 // app.use("/api/refund-policy", require("./routes/newRoutes/refundPolicy"));
 // app.use("/api/about-us", require("./routes/newRoutes/AboutUs"));
-app.use("/api/subpaisa", require("./routes/newRoutes/subPaisa"));
+// app.use("/api/subpaisa", require("./routes/newRoutes/subPaisa"));
 // app.use("/api/truecaller", require("./routes/newRoutes/nameFind"));
 // app.use("/api/faq", require("./routes/newRoutes/faq"));
 // app.post("/api/fetch-bill-payment", require("./temp/tmp").fetchBillPayment);
@@ -104,15 +109,16 @@ app.use("/api/subpaisa", require("./routes/newRoutes/subPaisa"));
 app.get("/api", (req, res) => {
   res.send(getIpAddress(req));
 });
+
 // =======================Logout ===========================
-app.post("/api/user/logout",(req,res)=>{
-  try {
-    return res.status(200).json({ message: "Logout Successfully" });
-  } catch (error) {
-    console.log("Logout Error", error);
-    res.status(500).json({ message: "Internal Server Error" });
-  }
-})
+// app.post("/api/user/logout",(req,res)=>{
+//   try {
+//     return res.status(200).json({ message: "Logout Successfully" });
+//   } catch (error) {
+//     console.log("Logout Error", error);
+//     res.status(500).json({ message: "Internal Server Error" });
+//   }
+// })
 
 // ======================= Send To Bank =============================
 // app.use("/api/send-to-bank", require("./routes/sendToBank"));

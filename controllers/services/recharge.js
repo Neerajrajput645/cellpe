@@ -14,6 +14,7 @@ const Recharge = require("../../models/service/rechargeSchema");
 const Notification = require("../../models/notificationSchema");
 const sendNotification = require("../../common/sendNotification");
 const getIpAddress = require("../../common/getIpAddress");
+const Commission = require("../../models/newModels/commission");
 const Transaction = require("../../models/txnSchema");
 const CryptoJS = require("crypto-js");
 const rechargeApiProviderSchema = require("../../models/service/rechargeApiProviderSchema");
@@ -40,7 +41,7 @@ const {
   // MobikwikCheckSumGenerate,
   parseXMLToJSON,
 } = require("../../common/PayuHashGenerate");
-
+const mobileTypeCheck = require("../../mobileTypeCheck.json");
 const crypto = require("crypto");
 
 const genTxnId = () => {
@@ -59,14 +60,15 @@ const genTxnId = () => {
 // const service_email = process.env.COMPANY_EMAIL;
 // const service_email_password = process.env.COMPANY_EMAIL_PASSWORD;
 
+
 const planFetch = asyncHandler(async (req, res) => {
 
   const { Operator_Code, Circle_Code, MobileNumber } = req.query;
-
+console.log(req.query, "plan fetch req.query");
   const selectedOperator = await planFetchProviderSchema.findOne({
     isTrue: true,
   });
-  // console.log(selectedOperator, "selectedOperator");
+  console.log(selectedOperator, "selectedOperator");
 
   if (selectedOperator.providerCode === 1) {
     const findOp = All_Recharge_Operator_List.find(
@@ -176,6 +178,7 @@ const planFetch = asyncHandler(async (req, res) => {
     }
   }
 });
+
 const BillhubComplainRaise = asyncHandler(async (req, res) => {
   try {
     const { order_id, message } = req.query;
@@ -211,6 +214,8 @@ const rechargeRequest = asyncHandler(async (req, res) => {
 
     if (!findService?.status) {
       res.status(400);
+
+      console.log("step-1", findService)
       throw new Error("Recharge Failed, Please Try Again Ex100");
     }
 
@@ -245,6 +250,7 @@ const rechargeRequest = asyncHandler(async (req, res) => {
       throw new Error("Please enter a valid mPin.");
     }
     if (walletFound.balance < TxnAmount) {
+      console.log("wallet", walletFound)
       res.status(400);
       throw new Error("User wallet balance is low.");
     }
@@ -308,8 +314,9 @@ const rechargeRequest = asyncHandler(async (req, res) => {
           isPrepaid,
         });
         await newRecharge.save();
-        try {
 
+
+        try {
           const bodyData = {
             token: process.env.BILLHUB_TOKEN,
             number: number,
@@ -321,12 +328,14 @@ const rechargeRequest = asyncHandler(async (req, res) => {
           }
           let response;
           // console.log(bodyData, "bodyData");
-          let rechargeRe = ""
+          let rechargeRe;
+
+
           try {
             // console.log("Calling Recharge API");
 
-            // rechargeRe = await axios.post("https://api.techember.in/app/recharges/main.php", bodyData);
-            const rechargeRe = {
+            //      rechargeRe = await axios.post("https://api.techember.in/app/recharges/main.php", bodyData);
+            rechargeRe = {
               data: {
                 status: 'success',
                 order_id: '1869354044',
@@ -350,7 +359,7 @@ const rechargeRequest = asyncHandler(async (req, res) => {
             "https://api.techember.in/app/recharges/main.php",
             bodyData,
             response,
-            `Recharge response received for TxnID: ${transactionId}, Status:` + (response ? response.status : 'No Response')
+            `Recharge response received for TxnID: ${transactionId}, Status:` + (response ? response?.status : 'No Response')
           );
 
           if (!response) {
@@ -386,23 +395,35 @@ const rechargeRequest = asyncHandler(async (req, res) => {
           // Start Cashback--------------------------
           if (status == "success" && isPrepaid) {
             console.log("Processing Cashback", findService._id);
-            const findRechargeOperator = await RechargeOperator.findOne({
-              serviceId: findService._id,
-            });
-            console.log("1234", findRechargeOperator);
-            if (!findRechargeOperator) {
-              throw new Error("Recharge operator or operator data not found.");
-            }
-            let findPercent;
-            const operatorMapping = {
-              airtel: findRechargeOperator.airtel,
-              jio: findRechargeOperator.jio,
-              vi: findRechargeOperator.vi,
-              bsnl_topup: findRechargeOperator.bsnl,
-            };
-            findPercent =
-              operatorMapping[findOperator.Billhub_Operator_code] || 0; // Default 0 if not found
+            // const findRechargeOperator = await RechargeOperator.findOne({
+            //   serviceId: findService._id,
+            // });
+
+            const op = findOperator.com_name;
+            // console.log("Found Operator Name:", findOperator);
+            console.log("Operator for Cashback:", op);
+            const commission = await Commission.findOne({  name : op, status:true });
+            console.log("Commission Details:", commission);
+            const findPercent = commission ? commission?.commission : 0;
+            console.log("Cashback Percent:", findPercent);
             const cashbackPercent = (TxnAmount / 100) * findPercent;
+            console.log("Calculated Cashback Amount:", cashbackPercent);
+            // if (!findRechargeOperator) {
+            //   throw new Error("Recharge operator or operator data not found.");
+            // }
+            // let findPercent;
+            // const operatorMapping = {
+            //   airtel: findRechargeOperator.airtel,
+            //   jio: findRechargeOperator.jio,
+            //   vi: findRechargeOperator.vi,
+            //   bsnl_topup: findRechargeOperator.bsnl,
+            // };
+
+            // findPercent =
+            //   operatorMapping[findOperator.Billhub_Operator_code] || 0; // Default 0 if not found
+            // const cashbackPercent = (TxnAmount / 100) * findPercent;
+
+
             await handleCashback(
               FindUser,
               cashbackPercent,
@@ -434,6 +455,9 @@ const rechargeRequest = asyncHandler(async (req, res) => {
             Remarks: `Your Recharge is ${status}`,
             Data: ({
               status: capitalize(status),
+              // number:newRecharge.number,
+              transactionId: newRecharge.transactionId,
+              // transectionId:newRecharge.txnId,
               operator_ref_id: response?.operator_ref_id || 0,
             }),
           });
@@ -512,7 +536,7 @@ const fetchDthPlans = asyncHandler(async (req, res) => {
     const operatorCode = req.query.operatorCode || 27;
     const apimember_id = process.env.PLAN_API_USER_ID;
     const api_password = process.env.PLAN_API_PASSWORD_hash;
-
+    console.log(req.body);
     const url = "https://planapi.in/api/Mobile/DthPlans";
 
     const response = await axios.get(url, {
@@ -524,7 +548,7 @@ const fetchDthPlans = asyncHandler(async (req, res) => {
     });
 
     const data = response.data;
-
+    console.log("dth plan fetch");
     // ✅ Safely extract base fields
     const operator = data?.Operator || "Unknown";
     const combos = data?.RDATA?.Combo || [];
@@ -599,6 +623,7 @@ const fetchDthPlans = asyncHandler(async (req, res) => {
         plans,
       },
     };
+    console.log("plan fetch successfully");
 
     return successHandler(req, res, formattedResponse);
   } catch (error) {
@@ -623,10 +648,53 @@ const fetchDthOperator = asyncHandler(async (req, res) => {
       // mobile_no: dthNumber, - for more details
     };
 
+    
+
+
     const url = "https://planapi.in/api/Mobile/DthOperatorFetch";
     // const url = "https://planapi.in/api/Mobile/DthInfoWithLastRechargeDate"; // for more details
 
     const { data } = await axios.get(url, { params });
+
+    console.log(data, "dth operator data");
+
+
+     try {
+    let userName = "Unknown";
+    const detailsParams = {
+      apimember_id: process.env.PLAN_API_USER_ID,
+      api_password: process.env.PLAN_API_PASSWORD_hash,
+      dth_number: dthNumber,
+      Opcode: data.DthOpCode, // Operator code for DTH - FOR MORE DETAILS
+      mobile_no: dthNumber, // - for more details
+    };
+
+    const dthurl = "https://planapi.in/api/Mobile/DthInfoWithLastRechargeDate"; // for more details
+
+    const { data:news } = await axios.get(dthurl, { params: detailsParams });
+
+
+          // userName = data.DATA.Name;
+      console.log("------------------------------------------------------------------");
+      // console.log("qwe",news.DATA.Name)
+      if (!news?.DATA?.Name) {
+        return res.status(404).json({
+          Error: true,
+          Status: false,
+          ResponseStatus: 0,
+          StatusCode: "Ex404",
+          Remarks: "Wrong DTH ID"
+        });
+      }
+    data.userName=news.DATA.Name
+    console.log(news.DATA.Name, "dth details data");
+    console.log("------------------------------------------------------------------");
+  }
+  catch (error) {
+    console.error("DTH Recharge Pre-fetch Error:", error.message || error.response?.data || error);
+  }
+
+
 
     return successHandler(req, res, {
       Error: false,
@@ -654,6 +722,8 @@ const fetchDthOpDetails = asyncHandler(async (req, res) => {
       mobile_no: dthNumber, // - for more details
     };
 
+    console.log(params, "params");
+
     // const url = "https://planapi.in/api/Mobile/DthOperatorFetch";
     const url = "https://planapi.in/api/Mobile/DthInfoWithLastRechargeDate"; // for more details
 
@@ -672,11 +742,11 @@ const fetchDthOpDetails = asyncHandler(async (req, res) => {
 
 
 const dthRequest = asyncHandler(async (req, res) => {
+
   const findService = await Service.findOne({ name: "DTH" });
   const ipAddress = getIpAddress(req);
 
   if (!findService?.status) throw new Error("DTH Recharge Failed, Please Try Again Ex100");
-
   const { _id, deviceToken } = req.data;
   const FindUser = await Users.findById(_id);
   if (!FindUser?.status) throw new Error("User is Blocked");
@@ -685,7 +755,22 @@ const dthRequest = asyncHandler(async (req, res) => {
   const { number, operator, amount, transactionId = genTxnId(), mPin } = req.query;
   const txnAmount = Number(amount);
   if (txnAmount <= 0) throw new Error("Amount should be positive.");
-
+  if (operator == 28 && txnAmount < 200) {
+    res.status(400);
+    throw new Error("Minimum Amount for Tata Sky should be greater than 200")
+  }
+  else if (operator == 25 && txnAmount < 100) {
+    res.status(400);
+    throw new Error("Minimum Amount for Dish TV should be greater than 100")
+  }
+  else if (operator == 29 && txnAmount < 100) {
+    res.status(400);
+    throw new Error("Minimum Amount for Videocon should be greater than 200")
+  }
+  else if (operator == 24 && txnAmount < 100) {
+    res.status(400);
+    throw new Error("Minimum Amount for Dish TV should be greater than 200")
+  }
   if (!req.data.mPin) throw new Error("Please set an mPin.");
 
   // 🔐 Decrypt mPin
@@ -708,16 +793,42 @@ const dthRequest = asyncHandler(async (req, res) => {
     ipAddress,
   };
 
+  let userName = "Unknown";
+  try {
+  
+    const detailsParams = {
+      apimember_id: process.env.PLAN_API_USER_ID,
+      api_password: process.env.PLAN_API_PASSWORD_hash,
+      dth_number: number,
+      Opcode: operator, // Operator code for DTH - FOR MORE DETAILS
+      mobile_no: number, // - for more details
+    };
+
+    const dthurl = "https://planapi.in/api/Mobile/DthInfoWithLastRechargeDate"; // for more details
+
+    const { data } = await axios.get(dthurl, { params: detailsParams });
+    userName = data.DATA.Name;
+    console.log("------------------------------------------------------------------");
+    console.log(data.DATA.Name, "dth details data");
+    console.log("------------------------------------------------------------------");
+  }
+  catch (error) {
+    console.error("DTH Recharge Pre-fetch Error:", error.message || error.response?.data || error);
+  }
+
   try {
     const walletRes = await paywithWallet({ body: payBody });
     if (walletRes.ResponseStatus !== 1) throw new Error("Wallet deduction failed.");
-
+    console.log("req.body", req.body);
+    console.log("req.query", req.query);
     // 🔎 Validate operator
+    console.log(operator)
     const findOperator = All_DTH_Recharge_Operator_List.find(
-      (a) => a.Mobikwik_Operator_code == operator
+      (a) => a.planApi_operator_code == operator
     );
+    console.log("es", findOperator)
     if (!findOperator) throw new Error("Invalid operator selected.");
-
+    console.log(findOperator, "find op")
     const URL = "https://api.techember.in/app/recharges/main.php";
     const bodyData = {
       token: process.env.BILLHUB_TOKEN,
@@ -732,7 +843,17 @@ const dthRequest = asyncHandler(async (req, res) => {
     await saveLog("DTH_RECHARGE", URL, bodyData, null, `Recharge initiated for TxnID: ${transactionId}`);
 
     // 🔌 Call Billhub API
-    const rechargeRe = await axios.post(URL, bodyData);
+    // const rechargeRe = await axios.post(URL, bodyData);
+    const rechargeRe = {
+      data: {
+        status: 'success',
+        order_id: '1762671148848568',
+        margin: '0.8250',
+        margin_percentage: '0.1283',
+        operator_ref_id: null
+      }
+    }
+    console.log("data", rechargeRe);
     const rechargeData = rechargeRe.data || {};
     const status = rechargeData.status?.toLowerCase() || "unknown";
 
@@ -751,6 +872,7 @@ const dthRequest = asyncHandler(async (req, res) => {
       operator,
       amount: txnAmount,
       transactionId,
+      userName,
       status: rechargeData.status,
       operatorRef: rechargeData.operator_ref_id || 0,
       apiTransID: rechargeData.order_id || 0,
@@ -774,8 +896,19 @@ const dthRequest = asyncHandler(async (req, res) => {
 
     // 🎁 Cashback only on success
     if (status === "success") {
-      const cashbackAmount = (txnAmount * findService.percent) / 100;
-      await handleCashback(FindUser, cashbackAmount, transactionId, ipAddress, walletFound);
+
+
+       const op = findOperator.Operator_name;
+            // console.log("Found Operator Name:", findOperator);
+            console.log("Operator for Cashback:", op);
+            const commission = await Commission.findOne({ name : op });
+            console.log("Commission Details:", commission);
+            const findPercent = commission ? commission.commission : 0;
+            console.log("Cashback Percent:", findPercent);
+            const cashbackPercent = (txnAmount / 100) * findPercent;
+            console.log("Calculated Cashback Amount:", cashbackPercent);
+
+      await handleCashback(FindUser, cashbackPercent, transactionId, ipAddress, walletFound);
     }
 
     // ✅ Always respond (success/pending/accepted)
@@ -785,7 +918,9 @@ const dthRequest = asyncHandler(async (req, res) => {
         rechargeData.ErrorMessage ||
         `Recharge ${status}`,
       Data: rechargeData,
+      ResponseStatus: 1
     });
+
   } catch (error) {
     console.error("DTH Recharge Error:", error);
 
@@ -880,6 +1015,10 @@ const Get_Operator_Circle_By_Phone = asyncHandler(async (req, res) => {
     res.status(400);
     throw new Error(response.data.Message);
   } else {
+    const operatorTypeFilter = mobileTypeCheck
+      .filter(a => a.op_code === response.data.op_code)
+      .map(a => a.type);
+    response.data.operatorType = operatorTypeFilter.length > 0 ? operatorTypeFilter[0] : "N/A";
     successHandler(req, res, {
       Remarks: "Operator & Circle Fetch Success",
       Data: response.data,
@@ -1123,6 +1262,80 @@ const handleFailedRecharge = asyncHandler(async (req, res) => {
   }
 });
 
+const commission = asyncHandler(async (req, res) => {
+  console.log("commission api called");
+  return successHandler(req, res, {
+    Remarks: "Commission fetched successfully",
+    data: {
+      mobile: {
+        Airtel: {
+          commission: 2.5,
+          icon: "uploads/operator/airtel.jpg",
+        },
+        Jio: {
+          commission: 3,
+          icon: "uploads/operator/jio.jpg",
+        },
+        Vi: {
+          commission: 4.5,
+          icon: "uploads/operator/vi.jpg",
+        },
+        Bsnl: {
+          commission: 5,
+          icon: "uploads/operator/bsnl.jpg",
+        },
+      },
+      dth: {
+        Airtel: {
+          icon: "uploads/operator/airtel.jpg",
+          commission: 1,
+        },
+        "Sun Direct": {
+          icon: "uploads/operator/sun_tv.jpg",
+          commission: 1.5,
+        },
+        Videocon: {
+          icon: "uploads/operator/videocon.jpg",
+          commission: 1.2,
+        },
+        "Tata Sky": {
+          icon: "uploads/operator/tata_sky.jpg",
+          commission: 2.1,
+        },
+      },
+      bbps: {
+        Water: {
+          icon: "uploads/services/water.png",
+          commission: 3,
+        },
+        Gas: {
+          icon: "uploads/services/Book-gas-cylinder-icon.png",
+          commission: 3,
+        },
+        Electricity: {
+          icon: "uploads/services/electricity-bill-icon.png",
+          commission: 4,
+        },
+        Insurance: {
+          icon: "uploads/services/insurance.png",
+          commission: 3,
+        },
+        Postpaid: {
+          icon: "uploads/services/postpaid.png",
+          commission: 2,
+        },
+        "Fast Card": {
+          icon: "uploads/services/fastag.png",
+          commission: 2,
+        },
+        "Google Play": {
+          icon: "uploads/services/google-play.png",
+          commission: 2.12,
+        },
+      },
+    },
+  });
+});
 // const Recharge_CallBack_Handler = asyncHandler(async (req, res) => {
 //   const Status =
 //     req.query.Status || req.query.status || req.query.STATUS === 1
@@ -1740,16 +1953,20 @@ const Recharge_CallBack_Handler = asyncHandler(async (req, res) => {
       TransID = req.body.order_id || 0;
 
       // Log raw data for debugging
+      console.log("Logging webhook data to file");
       const logFile = path.join(process.cwd(), "webhook_logs.txt");
+      console.log("Logging to file:", logFile);
       fs.appendFileSync(logFile, `${new Date().toISOString()} - ${req.method} - ${JSON.stringify(req.body)}\n`);
-
+      console.log("Logged webhook data successfully");
     } else if (req.method === "GET") {
+      console.log("Processing GET request");
       Status = req?.query?.Status || req?.query?.status || req?.query?.STATUS === 1 ? "success" : "failed";
-
+      console.log("Parsed Status:", Status);
       // Log raw data for debugging
       const logFile = path.join(process.cwd(), "webhook_logs.txt");
+      console.log("Logging to file:", logFile);
       fs.appendFileSync(logFile, `${new Date().toISOString()} - ${req.method} - ${JSON.stringify(req.data)}\n`);
-
+      console.log("Logged webhook data successfully");
 
 
       TransID =
@@ -2465,8 +2682,85 @@ const DTHOperatorArr = [
   },
 ];
 
+const userReferralList = asyncHandler(async (req, res) => {
+  const { _id } = req.data;
+  const user = await User.findById(_id).select("referalId");
+  if (!user) {
+    res.status(404);
+    throw new Error("Unable to find user");
+  }
+  const refUser = await User.find({ referedBy: user.referalId });
+  successHandler(req, res, {
+    Remark: "User Referral List Fetched Successfully",
+    Data: refUser.length ? refUser : [],
+  })
+})
+
+
+const circles = [
+  { id: 1, name: "DELHI", circleCode: "10" },
+  { id: 2, name: "UP(West)", circleCode: "97" },
+  { id: 3, name: "PUNJAB", circleCode: "02" },
+  { id: 4, name: "HP", circleCode: "03" },
+  { id: 5, name: "HARYANA", circleCode: "96" },
+  { id: 6, name: "J&K", circleCode: "55" },
+  { id: 7, name: "UP(East)", circleCode: "54" },
+  { id: 8, name: "MUMBAI", circleCode: "92" },
+  { id: 9, name: "MAHARASHTRA", circleCode: "90" },
+  { id: 10, name: "GUJARAT", circleCode: "98" },
+  { id: 11, name: "MP", circleCode: "93" },
+  { id: 12, name: "RAJASTHAN", circleCode: "70" },
+  { id: 13, name: "KOLKATTA", circleCode: "31" },
+  { id: 14, name: "West Bengal", circleCode: "51" },
+  { id: 15, name: "ORISSA", circleCode: "53" },
+  { id: 16, name: "ASSAM", circleCode: "56" },
+  { id: 17, name: "NESA", circleCode: "16" },
+  { id: 18, name: "BIHAR", circleCode: "52" },
+  { id: 19, name: "KARNATAKA", circleCode: "06" },
+  { id: 20, name: "CHENNAI", circleCode: "40" },
+  { id: 21, name: "TAMIL NADU", circleCode: "94" },
+  { id: 22, name: "KERALA", circleCode: "95" },
+  { id: 23, name: "AP", circleCode: "49" },
+  { id: 24, name: "SIKKIM", circleCode: "99" },
+  { id: 25, name: "TRIPURA", circleCode: "100" },
+  { id: 26, name: "CHHATISGARH", circleCode: "101" },
+  { id: 27, name: "GOA", circleCode: "102" },
+  { id: 28, name: "MEGHALAY", circleCode: "103" },
+  { id: 29, name: "MIZZORAM", circleCode: "104" },
+  { id: 30, name: "JHARKHAND", circleCode: "105" }
+];
+
+const operators = [
+  { id: 1, name: "Jio", operatorCode: 11,
+    icon: "/uploads/operator/jio.jpg"
+   },
+  { id: 2, name: "Airtel", operatorCode: 2 ,
+    icon: "/uploads/operator/airtel.jpg"
+  },
+  { id: 3, name: "VI", operatorCode: 23,
+    icon: "/uploads/operator/vi.jpg"
+   },
+  { id: 4, name: "BSNL", operatorCode: 4,
+    icon: "/uploads/operator/bsnl.jpg"
+   },
+];
+
+const getCircleAndOperators = asyncHandler(async (req, res) => {
+  successHandler(req, res, {
+    Remarks: "Circle & Operator List",
+    Data: {
+      circles,
+      operators
+    }
+  });
+});
+
+
+
+
 module.exports = {
   planFetch, //-----------------------------
+  userReferralList,
   //   getOperator, //-----------------------------
   //   getCircle, //-----------------------------
   //   getBalance, //-----------------------------
@@ -2491,7 +2785,9 @@ module.exports = {
   CHECK_PENDING_TRANSACTION,
   rechargeStatus,
   fetchDthOperators,
-  fetchDthOpDetails
+  commission,
+  fetchDthOpDetails,
+  getCircleAndOperators,
 };
 
 // 

@@ -4,29 +4,28 @@ const Admin = require("../models/adminSchema");
 const { successLogger } = require("./logger");
 
 const successHandler = async (req, res, data) => {
-  const isAuth = req?.headers?.token;
+  const token = req?.headers?.token;
+
   const getData = () => {
-    if (isAuth) {
-      return new Promise((resolve, reject) => {
-        jwt.verify(isAuth, process.env.JWT_SECRET, async (err, data) => {
-          if (err) {
-            reject(err);
-          } else {
-            const { _id } = data;
-            // success response
-            const userFound = await User.findById(_id);
-            resolve(userFound);
-          }
-        });
+    return new Promise((resolve) => {
+      if (!token) return resolve(null); // 🧠 skip if no token
+      jwt.verify(token, process.env.JWT_SECRET, async (err, decoded) => {
+        if (err) return resolve(null); // 🧠 skip on invalid token
+        const userFound = await User.findById(decoded._id);
+        resolve(userFound);
       });
-    }
+    });
   };
+
   const userData = await getData();
-  const remarks = isAuth
-    ? `userid: ${userData?._id}, name: ${userData?.firstName} ${userData?.lastName}, phone: ${userData?.phone}, ${data.Remarks}`
+
+  const remarks = userData
+    ? `userid: ${userData._id}, name: ${userData.firstName} ${userData.lastName}, phone: ${userData.phone}, ${data.Remarks}`
     : data.Remarks;
-  successLogger.log("info", remarks); // success logs
-  res?.json({
+
+  successLogger.log("info", remarks);
+
+  return res.json({
     Error: false,
     Status: true,
     ResponseStatus: 1,

@@ -1,7 +1,7 @@
 const AppSetting = require("../models/appSetting");
 const asyncHandler = require("express-async-handler");
 const successHandler = require("../common/successHandler");
-const { encryptFunc } = require("../common/encryptDecrypt");
+// const { encryptFunc } = require("../common/encryptDecrypt");
 const rechargeApiProviderSchema = require("../models/service/rechargeApiProviderSchema");
 const getIpAddress = require("../common/getIpAddress");
 const planFetchProviderSchema = require("../models/service/planFetchProviderSchema");
